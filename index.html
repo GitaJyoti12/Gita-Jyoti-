@@ -507,11 +507,17 @@ body{
 .mantra-field{margin-bottom:12px;}
 .mantra-field label{display:block;font-size:11.5px;color:var(--muted);margin-bottom:5px;}
 .mantra-field textarea,
-.mantra-field input[type="text"]{
+.mantra-field input[type="text"],
+.mantra-field select{
   width:100%;box-sizing:border-box;background:#1a0f04;border:1px solid var(--border);
   border-radius:10px;padding:10px 12px;color:#f3e6cf;font-size:13px;font-family:inherit;
 }
 .mantra-field textarea{min-height:70px;resize:vertical;}
+.mantra-field select{appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23caa248' stroke-width='2'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat:no-repeat;background-position:right 10px center;padding-right:32px;}
+.mantra-field select option{background:#1a0f04;color:#f3e6cf;}
+.mantra-new-cat-input{margin-top:8px;}
 .mantra-img-picker{
   display:flex;align-items:center;gap:12px;
 }
@@ -836,6 +842,34 @@ body{
       <div style="width:38px;"></div>
     </div>
     <div class="section-title">ব্যবহারকারীদের আপলোড করা মন্ত্র</div>
+
+    <!-- ক্যাটাগরি ফিল্টার -->
+    <div id="mantraCategoryWrap" style="
+      display:flex;gap:8px;overflow-x:auto;padding:0 16px 12px;
+      -webkit-overflow-scrolling:touch;scrollbar-width:none;
+    ">
+      <style>#mantraCategoryWrap::-webkit-scrollbar{display:none;}
+      .cat-pill{
+        flex-shrink:0;padding:7px 14px;border-radius:999px;
+        border:1px solid var(--border);background:var(--card-solid);
+        color:var(--muted);font-size:12.5px;cursor:pointer;white-space:nowrap;font-weight:600;
+      }
+      .cat-pill.active{
+        background:linear-gradient(180deg,#f3d29a,#caa248);
+        color:#1a0d03;border-color:transparent;
+      }
+      </style>
+      <div class="cat-pill active" data-cat="সব">🕉️ সব</div>
+      <div class="cat-pill" data-cat="কৃষ্ণ">🦚 কৃষ্ণ</div>
+      <div class="cat-pill" data-cat="শিব">🔱 শিব</div>
+      <div class="cat-pill" data-cat="দুর্গা">🌺 দুর্গা</div>
+      <div class="cat-pill" data-cat="গণেশ">🐘 গণেশ</div>
+      <div class="cat-pill" data-cat="সরস্বতী">🎶 সরস্বতী</div>
+      <div class="cat-pill" data-cat="লক্ষ্মী">🪷 লক্ষ্মী</div>
+      <div class="cat-pill" data-cat="রাম">🏹 রাম</div>
+      <div class="cat-pill" data-cat="হনুমান">🚩 হনুমান</div>
+    </div>
+
     <div id="userMantrasList"></div>
     <div class="section-title">অধ্যায় সমূহ</div>
     <div id="chaptersList"></div>
@@ -992,6 +1026,11 @@ body{
       <div class="mantra-field">
         <label>দেবতার নাম / মন্ত্রের নাম</label>
         <input type="text" id="mantraAuthorInput" placeholder="যেমন: দুর্গা মা, শ্রীকৃষ্ণ, শিব...">
+      </div>
+      <div class="mantra-field">
+        <label>ক্যাটাগরি নির্বাচন করুন</label>
+        <select id="mantraCategorySelect"></select>
+        <input type="text" id="mantraNewCategoryInput" class="mantra-new-cat-input" placeholder="নতুন ক্যাটাগরির নাম লিখুন..." style="display:none;">
       </div>
       <div class="mantra-field">
         <label>মন্ত্র / শ্লোকের লেখা</label>
@@ -1717,6 +1756,7 @@ async function renderNotifications(){
 
 
 
+let cachedMantras = [];
 async function fetchUserMantras(){
   if(!db) return cachedMantras;
   try{
@@ -1772,6 +1812,84 @@ async function uploadToCloudinary(file){
   return data.secure_url;
 }
 
+/* =========================================================
+   ক্যাটাগরি সিস্টেম — পোস্ট করার সময় বিদ্যমান ক্যাটাগরি থেকে বাছাই
+   করা যাবে, অথবা মিল না পেলে নতুন ক্যাটাগরি তৈরি করে পোস্ট করা যাবে
+   ========================================================= */
+const DEFAULT_MANTRA_CATEGORIES = ['কৃষ্ণ','শিব','দুর্গা','গণেশ','সরস্বতী','লক্ষ্মী','রাম','হনুমান'];
+const NEW_CATEGORY_VALUE = '__new_category__';
+
+function getAllKnownCategories(){
+  const cats = new Set(DEFAULT_MANTRA_CATEGORIES);
+  getUserMantras().forEach(m=>{
+    const c = (m.category || m.author || '').trim();
+    if(c) cats.add(c);
+  });
+  return [...cats];
+}
+
+/* ক্যাটাগরি ড্রপডাউন সাজায়। selectedValue দিলে সেটিকে সিলেক্ট করে দেখায় —
+   এটি বিদ্যমান তালিকায় না থাকলে সাময়িকভাবে যোগ করে দেয় (এডিট মোডের জন্য) */
+function populateCategorySelect(selectedValue){
+  const sel = document.getElementById('mantraCategorySelect');
+  const newInput = document.getElementById('mantraNewCategoryInput');
+  if(!sel) return;
+  const cats = getAllKnownCategories();
+  sel.innerHTML = '';
+  cats.forEach(cat=>{
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    sel.appendChild(opt);
+  });
+  const newOpt = document.createElement('option');
+  newOpt.value = NEW_CATEGORY_VALUE;
+  newOpt.textContent = '➕ নতুন ক্যাটাগরি যোগ করুন';
+  sel.appendChild(newOpt);
+
+  if(newInput){ newInput.style.display = 'none'; newInput.value = ''; }
+
+  if(selectedValue && cats.includes(selectedValue)){
+    sel.value = selectedValue;
+  } else if(selectedValue){
+    // বিদ্যমান তালিকায় নেই এমন কাস্টম ক্যাটাগরি — নতুন অপশন হিসেবে যোগ করে সিলেক্ট করে দাও
+    const tempOpt = document.createElement('option');
+    tempOpt.value = selectedValue;
+    tempOpt.textContent = selectedValue;
+    sel.insertBefore(tempOpt, newOpt);
+    sel.value = selectedValue;
+  } else {
+    sel.selectedIndex = 0;
+  }
+}
+
+/* ফর্ম থেকে চূড়ান্ত ক্যাটাগরি বের করে — ড্রপডাউন থেকে বাছাই করা অথবা নতুন লেখা ক্যাটাগরি */
+function getSelectedCategoryFromForm(){
+  const sel = document.getElementById('mantraCategorySelect');
+  const newInput = document.getElementById('mantraNewCategoryInput');
+  if(!sel) return '';
+  if(sel.value === NEW_CATEGORY_VALUE){
+    return newInput ? newInput.value.trim() : '';
+  }
+  return sel.value.trim();
+}
+
+(function setupMantraCategorySelect(){
+  const sel = document.getElementById('mantraCategorySelect');
+  const newInput = document.getElementById('mantraNewCategoryInput');
+  if(!sel) return;
+  populateCategorySelect();
+  sel.addEventListener('change', ()=>{
+    if(sel.value === NEW_CATEGORY_VALUE){
+      newInput.style.display = 'block';
+      newInput.focus();
+    } else {
+      newInput.style.display = 'none';
+      newInput.value = '';
+    }
+  });
+})();
+
 (function setupMantraUploadForm(){
   const imgBtn = document.getElementById('mantraImgBtn');
   const imgInput = document.getElementById('mantraImgInput');
@@ -1798,8 +1916,13 @@ async function uploadToCloudinary(file){
   uploadBtn.addEventListener('click', ()=>{
     const text = document.getElementById('mantraTextInput').value.trim();
     const author = document.getElementById('mantraAuthorInput').value.trim();
+    const category = getSelectedCategoryFromForm();
     if(!author){
       showToast('দেবতার নাম বা মন্ত্রের নাম দিন');
+      return;
+    }
+    if(!category){
+      showToast('একটি ক্যাটাগরি নির্বাচন করুন অথবা নতুন ক্যাটাগরি লিখুন');
       return;
     }
     if(!text){
@@ -1835,12 +1958,12 @@ async function uploadToCloudinary(file){
         }
         if(isEditing){
           await db.collection('mantras').doc(editingMantraId).update({
-            text, author,
+            text, author, category,
             img: selectedMantraImg || null
           });
         } else {
           await db.collection('mantras').add({
-            text, author,
+            text, author, category,
             img: selectedMantraImg || null,
             date: new Date().toISOString(),
             postedBy: currentUser ? (currentUser.displayName || currentUser.email || 'ব্যবহারকারী') : 'ব্যবহারকারী',
@@ -1852,6 +1975,7 @@ async function uploadToCloudinary(file){
         // ফর্ম রিসেট
         document.getElementById('mantraTextInput').value = '';
         document.getElementById('mantraAuthorInput').value = '';
+        populateCategorySelect();
         selectedMantraImg = null;
         selectedMantraImgFile = null;
         imgPreview.src = '';
@@ -2083,25 +2207,67 @@ async function deleteUserMantra(id){
   }
 }
 
+let activeMantaCategory = 'সব';
+
+// ক্যাটাগরি পিল ক্লিক হ্যান্ডলার
+document.addEventListener('click', e=>{
+  const pill = e.target.closest('.cat-pill');
+  if(!pill) return;
+  document.querySelectorAll('.cat-pill').forEach(p=>p.classList.remove('active'));
+  pill.classList.add('active');
+  activeMantaCategory = pill.dataset.cat;
+  renderUserMantras();
+});
+
 async function renderUserMantras(){
   const wrap = document.getElementById('userMantrasList');
   if(!wrap) return;
   wrap.innerHTML = '<div class="empty-state">লোড হচ্ছে...</div>';
-  const list = await fetchUserMantras();
+  let list = await fetchUserMantras();
+
+  // পোস্টে ব্যবহৃত নতুন ক্যাটাগরির জন্য পিল যোগ করো (হোস্ট/ব্যবহারকারী যেকোনো নতুন ক্যাটাগরি বেছে নিলে)
+  const postedCategories = [...new Set(
+    list.map(m=> (m.category || m.author || '').trim()).filter(Boolean)
+  )];
+  const wrap2 = document.getElementById('mantraCategoryWrap');
+  if(wrap2){
+    const existingCats = [...wrap2.querySelectorAll('.cat-pill')].map(p=>p.dataset.cat);
+    postedCategories.forEach(cat=>{
+      if(!existingCats.includes(cat)){
+        const p = document.createElement('div');
+        p.className = 'cat-pill';
+        p.dataset.cat = cat;
+        p.textContent = '✨ ' + cat;
+        wrap2.appendChild(p);
+      }
+    });
+  }
+
+  // ফিল্টার করো
+  if(activeMantaCategory !== 'সব'){
+    list = list.filter(m=> (m.category || m.author) === activeMantaCategory);
+  }
+
   wrap.innerHTML = '';
   if(list.length===0){
-    wrap.innerHTML = '<div class="empty-state">এখনও কোনো মন্ত্র আপলোড করা হয়নি। প্রোফাইল থেকে আপনার প্রথম মন্ত্র আপলোড করুন।</div>';
+    wrap.innerHTML = '<div class="empty-state">এই ক্যাটাগরিতে এখনও কোনো মন্ত্র নেই।</div>';
   } else {
     list.forEach(m=>{
       const card = document.createElement('div');
       card.className = 'user-mantra-card';
       const imgHtml = m.img
         ? `<img src="${m.img}" alt="${m.author}">`
-        : `<div class="no-img">👤</div>`;
+        : `<div class="no-img">${m.authorEmoji||'🕉️'}</div>`;
       const isOwner = currentUser && m.uid && currentUser.uid === m.uid;
+      const catLabel = m.category || m.author;
+      const categoryBadge = catLabel
+        ? `<span style="display:inline-block;font-size:10.5px;padding:2px 8px;border-radius:999px;background:rgba(232,168,60,.15);color:var(--gold);margin-bottom:5px;">${m.authorEmoji||'✨'} ${catLabel}</span><br>`
+        : '';
       card.innerHTML = `
         ${imgHtml}
         <div style="flex:1;">
+          ${categoryBadge}
+          ${m.title ? `<p style="font-size:12px;font-weight:700;color:var(--gold-soft);margin:0 0 3px;">${m.title}</p>` : ''}
           <p class="umc-text">${m.text}</p>
           <span class="umc-author">— ${m.author}</span>
         </div>
@@ -2322,6 +2488,7 @@ function resetMantraUploadForm(){
   editingMantraId = null;
   document.getElementById('mantraTextInput').value = '';
   document.getElementById('mantraAuthorInput').value = '';
+  if(typeof populateCategorySelect === 'function') populateCategorySelect();
   selectedMantraImg = null;
   selectedMantraImgFile = null;
   const imgPlaceholder = document.getElementById('mantraImgPlaceholder');
@@ -2339,6 +2506,7 @@ function openMantraEditForm(m){
   editingMantraId = m.id;
   document.getElementById('mantraTextInput').value = m.text || '';
   document.getElementById('mantraAuthorInput').value = m.author || '';
+  if(typeof populateCategorySelect === 'function') populateCategorySelect(m.category || m.author || '');
   selectedMantraImg = m.img || null;
   const imgPreview = document.getElementById('mantraImgPreview');
   const imgPlaceholder = document.getElementById('mantraImgPlaceholder');
